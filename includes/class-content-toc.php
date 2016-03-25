@@ -28,6 +28,9 @@ class TOC {
 	// Placeholder HTML that shortcode is substituted for
 	protected $placeholder = '<div class="hm_content_toc_placeholder" style="display:none"></div>';
 
+	// Store the_content filter chain result
+	protected $the_content = '';
+
 	/**
 	 * Create Content_TOC:
 	 * 1) Setup default header elements
@@ -42,6 +45,16 @@ class TOC {
 		if ( function_exists( 'shortcode_ui_register_for_shortcode' ) ) {
 			add_action( 'init', array( $this, 'register_shortcake_ui' ) );
 		}
+
+		// Store the_content filter chain result
+		add_filter( "the_content", function( $post_content ) {
+
+			$this->the_content = $post_content;
+
+			return $post_content;
+
+		}, 12 );
+
 	}
 
 	/**
@@ -126,40 +139,8 @@ class TOC {
 			return '';
 		}
 
-		/**
-		 * Add `the_content` filter at 12, because `do_shortcode` is run at 11
-		 * and it means that we don't have any access to the posts content within
-		 * the shortcode callback, i.e. this function
-		 *
-		 * So:
-		 * 1) Shortcode is replaced with placeholder HTML
-		 * 2) `the_content` filter is added at priority 12, so that we can access post content
-		 *    after the shortcode has been processed/replaced
-		 * 3) The added filter is self removed, so it only runs on content that contains the shortcode
-		 *
-		 * NOTE: you can't add a filter within a function that was called by that filter because
-		 * the remaining hooked functions from the first iteration of the filter will be discarded
-		 * More info: https://core.trac.wordpress.org/ticket/17817
-		 */
-		add_filter( 'the_content', $func = function( $post_content ) use ( $shortcode_atts, &$func ) {
-
-			// Self remove just added filter, so it only runs whenever there is specified shortcode
-			remove_filter( 'the_content', $func, 12 );
-
-			// Process post content - insert TOC and anchors before headers
-			return TOC::get_instance()->filter_content( $post_content, $shortcode_atts );
-
-		}, 12 );
-
-		/**
-		 * Shortcode is substituted for HTML placeholder.
-		 * This is done, so that we can call `the_content` filter within
-		 * this shortcode function and self remove that filter.
-		 *
-		 * Currently this approach is buggy in WP core ref: https://core.trac.wordpress.org/ticket/17817
-		 * hence it requires a workaround.
-		 */
-		return $this->placeholder;
+		// Process post content - insert TOC and anchors before headers
+		return TOC::get_instance()->filter_content( $this->the_content, $shortcode_atts );
 	}
 
 	/**
@@ -238,7 +219,7 @@ class TOC {
 				'<%1$s class="%2$s">%3$s</%1$s>',
 				esc_attr( $this->settings['list_tag'] ),
 				esc_attr( $this->settings['list_class'] ),
-				wp_kses_post( $items_html )
+				$items_html
 			);
 		}
 
@@ -250,7 +231,7 @@ class TOC {
 				'<%1$s class="%2$s">%3$s</%1$s>',
 				esc_attr( $this->settings['wrapper_tag'] ),
 				esc_attr( $this->settings['wrapper_class'] ),
-				wp_kses_post( $title_html . $list_html )
+				$title_html . $list_html
 			);
 		}
 
@@ -260,7 +241,7 @@ class TOC {
 		// Insert anchors before the corresponding headers in the post content
 		$post_content = $this->insert_anchors( $post_content, $toc_items_matches );
 
-		return $post_content;
+		return $toc_html;
 	}
 
 	/**
@@ -397,10 +378,10 @@ class TOC {
 			$items_html .= apply_filters(
 				'hm_content_toc_single_item',
 				sprintf(
-					'<%1$s class="%2$s"><a href="#heading-%3$d">%4$s</a></%1$s>',
+					'<%1$s class="%2$s"><a data-scroll="true" href="#%3$s">%4$s</a></%1$s>',
 					esc_attr( $this->settings['list_item_tag'] ),
 					esc_attr( $this->settings['list_item_class'] . '-' . $toc_item_match[2] ),
-					esc_attr( $key_current ),
+					sanitize_title( $item_text ),
 					esc_html( $item_text )
 				),
 				$key_current,
